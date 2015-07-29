@@ -28,13 +28,31 @@ import sys
 
 PREDICTOR_PATH = "/home/matt/dlib-18.16/shape_predictor_68_face_landmarks.dat"
 SCALE_FACTOR = 1 
+FEATHER_AMOUNT = 11
+
 FACE_POINTS = list(range(17, 68))
 MOUTH_POINTS = list(range(48, 61))
 RIGHT_BROW_POINTS = list(range(17, 22))
 LEFT_BROW_POINTS = list(range(22, 27))
 RIGHT_EYE_POINTS = list(range(36, 42))
 LEFT_EYE_POINTS = list(range(42, 48))
-DILATE_AMOUNT = 1
+NOSE_POINTS = list(range(27, 35))
+JAW_POINTS = list(range(0, 17))
+
+# Points used to line up the images.
+ALIGN_POINTS = (LEFT_BROW_POINTS + RIGHT_EYE_POINTS + LEFT_EYE_POINTS +
+                               RIGHT_BROW_POINTS + NOSE_POINTS + MOUTH_POINTS)
+
+# Points from the second image to overlay on the first. The convex hull of each
+# element will be overlaid.
+OVERLAY_POINTS = [
+    LEFT_EYE_POINTS + RIGHT_EYE_POINTS + LEFT_BROW_POINTS + RIGHT_BROW_POINTS,
+    NOSE_POINTS + MOUTH_POINTS,
+]
+
+# Amount of blur to use during colour correction, as a fraction of the
+# pupillary distance.
+COLOUR_CORRECT_BLUR_FRAC = 0.6
 
 detector = dlib.get_frontal_face_detector()
 predictor = dlib.shape_predictor(PREDICTOR_PATH)
@@ -46,41 +64,42 @@ class NoFaces(Exception):
     pass
 
 def get_landmarks(im):
-    dets = detector(im, 1)
+    rects = detector(im, 1)
     
-    if len(dets) > 1:
+    if len(rects) > 1:
         raise TooManyFaces
-    if len(dets) == 0:
+    if len(rects) == 0:
         raise NoFaces
 
-    def shape_to_mat(s):
-        return numpy.matrix([[p.x, p.y] for p in s.parts()])
+    return numpy.matrix([[p.x, p.y] for p in predictor(im, rects[0]).parts()])
 
-    return shape_to_mat(predictor(im, dets[0]))
-
-def annotate_landmarks(im, shape):
+def annotate_landmarks(im, landmarks):
     im = im.copy()
-    for idx, point in enumerate(shape):
+    for idx, point in enumerate(landmarks):
         pos = (point[0, 0], point[0, 1])
         cv2.putText(im, str(idx), pos,
-                    fontFace=cv2.FONT_HERSHEY_PLAIN,
-                    fontScale=1,
-                    color=255)
-        cv2.circle(im, pos, 5, color=255)
+                    fontFace=cv2.FONT_HERSHEY_SCRIPT_SIMPLEX,
+                    fontScale=0.4,
+                    color=(0, 0, 255))
+        cv2.circle(im, pos, 3, color=(0, 255, 255))
     return im
 
-def get_face_mask(im, shape):
+def draw_convex_hull(im, points, color):
+    points = cv2.convexHull(points)
+    cv2.fillConvexPoly(im, points, color=color)
+
+def get_face_mask(im, landmarks):
     im = numpy.zeros(im.shape[:2], dtype=numpy.float64)
 
-    points = shape[FACE_POINTS]
-    points = cv2.convexHull(points)
-
-    cv2.fillConvexPoly(im, points, color=1)
+    for group in OVERLAY_POINTS:
+        draw_convex_hull(im,
+                         landmarks[group],
+                         color=1)
 
     im = numpy.array([im, im, im]).transpose((1, 2, 0))
 
-    im = (cv2.GaussianBlur(im, (DILATE_AMOUNT, DILATE_AMOUNT), 0) > 0) * 1.0
-    im = cv2.GaussianBlur(im, (DILATE_AMOUNT, DILATE_AMOUNT), 0)
+    im = (cv2.GaussianBlur(im, (FEATHER_AMOUNT, FEATHER_AMOUNT), 0) > 0) * 1.0
+    im = cv2.GaussianBlur(im, (FEATHER_AMOUNT, FEATHER_AMOUNT), 0)
 
     return im
     
@@ -141,34 +160,47 @@ def warp_im(im, M, dshape):
                    flags=cv2.WARP_INVERSE_MAP)
     return output_im
 
-def correct_colours(im1, im2, mask):
-    im1_blur = cv2.GaussianBlur(im1, (61, 61), 0)
-    im2_blur = cv2.GaussianBlur(im2, (61, 61), 0)
+def correct_colours(im1, im2, landmarks1):
+    blur_amount = COLOUR_CORRECT_BLUR_FRAC * numpy.linalg.norm(
+                              numpy.mean(landmarks1[LEFT_EYE_POINTS], axis=0) -
+                              numpy.mean(landmarks1[RIGHT_EYE_POINTS], axis=0))
+    blur_amount = int(blur_amount)
+    if blur_amount % 2 == 0:
+        blur_amount += 1
+    im1_blur = cv2.GaussianBlur(im1, (blur_amount, blur_amount), 0)
+    im2_blur = cv2.GaussianBlur(im2, (blur_amount, blur_amount), 0)
+
+    # Avoid divide-by-zero errors.
+    im2_blur += 128 * (im2_blur <= 1.0)
 
     return (im2.astype(numpy.float64) * im1_blur.astype(numpy.float64) /
                                                 im2_blur.astype(numpy.float64))
 
-    #factor = (im1 * mask).mean(axis=(0, 1)) / (im2 * mask).mean(axis=(0, 1))
-    #return im2 * factor
+im1, landmarks1 = read_im_and_landmarks(sys.argv[1])
+im2, landmarks2 = read_im_and_landmarks(sys.argv[2])
 
-im1, shape1 = read_im_and_landmarks(sys.argv[1])
-im2, shape2 = read_im_and_landmarks(sys.argv[2])
+cv2.imwrite('landmarks1.png', annotate_landmarks(im1, landmarks1))
+cv2.imwrite('landmarks2.png', annotate_landmarks(im2, landmarks2))
 
-#im1 = annotate_landmarks(im1, shape1)
-#im2 = annotate_landmarks(im2, shape2)
+M = transformation_from_points(landmarks1[ALIGN_POINTS],
+                               landmarks2[ALIGN_POINTS])
 
-M = transformation_from_points(shape1[FACE_POINTS],
-                               shape2[FACE_POINTS])
-
-mask = get_face_mask(im2, shape2)
+mask = get_face_mask(im2, landmarks2)
 warped_mask = warp_im(mask, M, im1.shape)
-combined_mask = numpy.max([get_face_mask(im1, shape1), warped_mask], axis=0)
+combined_mask = numpy.max([get_face_mask(im1, landmarks1), warped_mask],
+                          axis=0)
+cv2.imwrite('mask.png', 255 * combined_mask)
 
 warped_im2 = warp_im(im2, M, im1.shape)
-warped_corrected_im2 = correct_colours(im1, warped_im2, combined_mask)
+cv2.imwrite('aligned.png', warped_im2)
 
-output_im = (im1.astype(numpy.float64) * (1.0 - combined_mask) +
-             warped_corrected_im2.astype(numpy.float64) * combined_mask)
+output_im = im1 * (1.0 - combined_mask) + warped_im2 * combined_mask
+cv2.imwrite('non-colour-corrected-overlay.png', output_im)
+
+warped_corrected_im2 = correct_colours(im1, warped_im2, landmarks1)
+cv2.imwrite('colour-corrected.png', warped_corrected_im2)
+
+output_im = im1 * (1.0 - combined_mask) + warped_corrected_im2 * combined_mask
 
 cv2.imwrite('output.jpg', output_im)
 
