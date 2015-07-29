@@ -179,9 +179,6 @@ def correct_colours(im1, im2, landmarks1):
 im1, landmarks1 = read_im_and_landmarks(sys.argv[1])
 im2, landmarks2 = read_im_and_landmarks(sys.argv[2])
 
-cv2.imwrite('landmarks1.png', annotate_landmarks(im1, landmarks1))
-cv2.imwrite('landmarks2.png', annotate_landmarks(im2, landmarks2))
-
 M = transformation_from_points(landmarks1[ALIGN_POINTS],
                                landmarks2[ALIGN_POINTS])
 
@@ -189,16 +186,12 @@ mask = get_face_mask(im2, landmarks2)
 warped_mask = warp_im(mask, M, im1.shape)
 combined_mask = numpy.max([get_face_mask(im1, landmarks1), warped_mask],
                           axis=0)
-cv2.imwrite('mask.png', 255 * combined_mask)
 
 warped_im2 = warp_im(im2, M, im1.shape)
-cv2.imwrite('aligned.png', warped_im2)
 
 output_im = im1 * (1.0 - combined_mask) + warped_im2 * combined_mask
-cv2.imwrite('non-colour-corrected-overlay.png', output_im)
 
 warped_corrected_im2 = correct_colours(im1, warped_im2, landmarks1)
-cv2.imwrite('colour-corrected.png', warped_corrected_im2)
 
 output_im = im1 * (1.0 - combined_mask) + warped_corrected_im2 * combined_mask
 
