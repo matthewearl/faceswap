@@ -20,6 +20,15 @@
 #     OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 #     USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+"""
+This is the code behind the Switching Eds blog post:
+
+    http://matthewearl.github.io/2015/07/28/switching-eds-with-python/
+
+See the above for an explanation of the code below.
+
+"""
+
 import cv2
 import dlib
 import numpy
