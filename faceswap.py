@@ -27,6 +27,20 @@ This is the code behind the Switching Eds blog post:
 
 See the above for an explanation of the code below.
 
+To run the script you'll need to install dlib (http://dlib.net) including its
+Python bindings, and OpenCV. You'll also need to obtain the trained model from
+sourceforge:
+
+    http://sourceforge.net/projects/dclib/files/dlib/v18.10/shape_predictor_68_face_landmarks.dat.bz2
+
+Unzip with `bunzip2` and change `PREDICTOR_PATH` to refer to this file. The
+script is run like so:
+
+    ./faceswap.py <head image> <face image>
+
+If successful, a file `output.jpg` will be produced with the facial features
+from `<head image>` replaced with the facial features from `<face image>`.
+
 """
 
 import cv2
@@ -197,9 +211,6 @@ combined_mask = numpy.max([get_face_mask(im1, landmarks1), warped_mask],
                           axis=0)
 
 warped_im2 = warp_im(im2, M, im1.shape)
-
-output_im = im1 * (1.0 - combined_mask) + warped_im2 * combined_mask
-
 warped_corrected_im2 = correct_colours(im1, warped_im2, landmarks1)
 
 output_im = im1 * (1.0 - combined_mask) + warped_corrected_im2 * combined_mask
