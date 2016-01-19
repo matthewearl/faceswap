@@ -194,7 +194,7 @@ def correct_colours(im1, im2, landmarks1):
     im2_blur = cv2.GaussianBlur(im2, (blur_amount, blur_amount), 0)
 
     # Avoid divide-by-zero errors.
-    im2_blur += 128 * (im2_blur <= 1.0)
+    im2_blur += (128 * (im2_blur <= 1.0)).astype(im2_blur.dtype)
 
     return (im2.astype(numpy.float64) * im1_blur.astype(numpy.float64) /
                                                 im2_blur.astype(numpy.float64))
